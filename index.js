@@ -12,7 +12,7 @@ let database = null;
 const pgClient = new PGClient({
     user: 'mmuser',
     host: 'localhost',
-    database: 'mattermost_test',
+    database: 'mattermost',
     password: 'mostest',
     port: 5432,
 })
@@ -35,7 +35,7 @@ run().catch(console.dir);
 async function migrate() {
     await exportUsers();
     await exportChannels();
-    await deleteExportedMessages();
+    // await deleteExportedMessages();
     await exportMessages();
 
     // update posts
@@ -93,7 +93,7 @@ async function exportChannels() {
 }
 
 async function deleteExportedMessages() {
-    const {rowCount} = await pgClient.query("delete from posts where props->>'rcid' is not null")
+    const {rowCount} = await pgClient.query("delete from posts where (props->>'imported')::boolean IS TRUE")
     console.info(`Deleted ${rowCount} posts`)
 
     // const channels = await getRCRoomList();
@@ -117,36 +117,28 @@ async function exportMessages() {
     const userList = await getRCUserList();
     const messages = db.collection('rocketchat_message');
     const messageCursor = messages.find(); //.limit(200);
+    let ignoredMessages = 0;
     for await (const messageDoc of messageCursor) {
-        const {u, msg, rid} = messageDoc;
+        const {_id, u, msg, rid} = messageDoc;
         const roomDoc = roomList[rid];
         if (!roomDoc || !roomDoc.mmdb)
             continue;
         if (!msg)
             continue;
         const user = userList[u._id];
-        console.log("Inserting message: ", u.username, msg);
-        // Client4.setToken(user.token.token);
-        // const currentUser = await Client4.getMe();
-        // console.log('currentUser', currentUser)
-        const postInfo = await Client4.createPost({
-            channel_id: roomDoc.mmdb.id,
-            message: msg, // `<${u.username}>: ${msg}`,
-            props: {
-                rcid: roomDoc._id,
-                // user: messageDoc.u.username,
-                // userID: user.mmdb.id,
-                // created: messageDoc.ts.getTime(),
-                // updated: messageDoc._updatedAt.getTime()
-            }
-        })
-        const {rowCount} = await pgClient.query("update posts\n" +
-            "set userid = $1,\n" +
-            "createat = $2,\n" +
-            "updateat = $3\n" +
-            "WHERE id = $4", [user.mmdb.id, messageDoc.ts.getTime(), messageDoc._updatedAt.getTime(), postInfo.id])
-        if (rowCount !== 1)
-            console.warn(`Error Updating user and date info for post ${postInfo.id}`)
+        const {rowCount} = await pgClient.query("INSERT INTO posts\n" +
+            "(id, channelid, userid, message, createat, updateat, props) \n" +
+            "values($1, $2, $3, $4, $5, $6, $7)\n" +
+            "ON CONFLICT (id) DO NOTHING",
+            [_id, roomDoc.mmdb.id, user.mmdb.id, msg, messageDoc.ts.getTime(), messageDoc._updatedAt.getTime(), '{}'])
+        if (rowCount === 1) {
+            console.log(`<${u.username}>:`, msg);
+        } else {
+            ignoredMessages++;
+        }
+    }
+    if (ignoredMessages) {
+        console.log(`ignored ${ignoredMessages} messages`)
     }
 
 
@@ -222,7 +214,7 @@ let defaultTeamID = null;
 async function getDefaultTeamID() {
     if (defaultTeamID === null) {
         const teams = await Client4.getTeams()
-        console.log('teams', teams)
+        // console.log('teams', teams)
         defaultTeamID = teams[0].id;
     }
     return defaultTeamID;
@@ -246,7 +238,7 @@ async function updateMMChannel(channel) {
     const existingChannel = existingChannels.find(c => c.name === channel.name);
     if (existingChannel) {
         channel.id = existingChannel.id;
-        console.info("Updating channel: " + channel.name);
+        // console.info("Updating channel: " + channel.name);
         return await Client4.updateChannel(channel)
     } else {
         console.info("Inserting channel: " + channel.name);
@@ -274,7 +266,7 @@ async function updateMMUser(user) {
     if (existingUser) {
         // user.email = existingUser.email;
         // user.id = existingUser.id;
-        console.info("Found existing user: " + user.username);
+        // console.info("Found existing user: " + user.username);
         // return await Client4.updateUser(user)
         return existingUser;
     } else {

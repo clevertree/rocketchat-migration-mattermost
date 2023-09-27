@@ -12,7 +12,7 @@ let database = null;
 const pgClient = new PGClient({
     user: 'mmuser',
     host: 'localhost',
-    database: 'mattermost',
+    database: 'mattermost_test',
     password: 'mostest',
     port: 5432,
 })
@@ -127,8 +127,8 @@ async function exportMessages() {
             continue;
         const user = userList[u._id];
         const {rowCount} = await pgClient.query("INSERT INTO posts\n" +
-            "(id, channelid, userid, message, createat, updateat, props) \n" +
-            "values($1, $2, $3, $4, $5, $6, $7)\n" +
+            "(id, channelid, userid, message, createat, updateat, props, ispinned, hasreactions, editat, deleteat, rootid, originalid, type, hashtags, filenames, fileids, remoteid) \n" +
+            "values($1, $2, $3, $4, $5, $6, $7, false, false, 0, 0, '', '', '',' ', '[]', '[]', '')\n" +
             "ON CONFLICT (id) DO NOTHING",
             [_id, roomDoc.mmdb.id, user.mmdb.id, msg, messageDoc.ts.getTime(), messageDoc._updatedAt.getTime(), '{}'])
         if (rowCount === 1) {
